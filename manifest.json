@@ -2,7 +2,8 @@
   "name": "Nova Reader",
   "short_name": "Nova Reader",
   "description": "RSVP speed reader",
-  "start_url": ".",
+  "start_url": "./index.html",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#fafaf9",
   "theme_color": "#e63946",
@@ -10,16 +11,18 @@
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "share_target": {
-    "action": "index.html",
+    "action": "./index.html",
     "method": "GET",
     "params": {
       "title": "title",

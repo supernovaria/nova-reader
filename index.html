@@ -154,9 +154,10 @@
     <h1>N<span>o</span>va Reader</h1>
     <p class="subtitle">RSVP speed reader</p>
 
-    <textarea id="paste-area" placeholder="Paste your text here..." autofocus></textarea>
+    <textarea id="paste-area" placeholder="Paste a URL or text here..." autofocus></textarea>
 
     <button class="btn-primary" id="btn-start" disabled>Start Reading</button>
+    <p id="status-msg" class="hint"></p>
 
     <div class="controls-hint">
       <kbd>Space</kbd> pause/resume &nbsp;
@@ -174,33 +175,122 @@
 
     const textarea = document.getElementById("paste-area");
     const btn = document.getElementById("btn-start");
+    const statusMsg = document.getElementById("status-msg");
 
     // Handle share target: populate textarea with shared text/url
     const params = new URLSearchParams(location.search);
     const sharedText = params.get("text") || "";
     const sharedUrl = params.get("url") || "";
     const sharedTitle = params.get("title") || "";
-    const shared = [sharedTitle, sharedText, sharedUrl].filter(Boolean).join("\n\n");
+    // Prefer URL if present, otherwise combine what we have
+    const shared = sharedUrl || [sharedTitle, sharedText].filter(Boolean).join("\n\n");
     if (shared) {
       textarea.value = shared;
       btn.disabled = false;
-      // Clean URL so refreshing doesn't re-share
       history.replaceState(null, "", location.pathname);
+      // Auto-fetch if it's a URL
+      if (looksLikeUrl(shared.trim())) {
+        fetchArticle(shared.trim());
+      }
+    }
+
+    function looksLikeUrl(text) {
+      // Single line that starts with http(s)
+      return /^https?:\/\/\S+$/.test(text.trim()) && !text.includes("\n");
+    }
+
+    async function fetchArticle(url) {
+      btn.disabled = true;
+      statusMsg.textContent = "Fetching article...";
+      try {
+        const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) throw new Error("Fetch failed");
+        const html = await resp.text();
+        const extracted = extractArticle(html, url);
+        if (extracted && extracted.length > 100) {
+          textarea.value = extracted;
+          statusMsg.textContent = "Article extracted. Press Start Reading.";
+        } else {
+          statusMsg.textContent = "Could not extract article. Paste the text manually.";
+          textarea.value = url;
+        }
+      } catch (e) {
+        statusMsg.textContent = "Could not fetch URL. Paste the text manually.";
+        textarea.value = url;
+      }
+      btn.disabled = !textarea.value.trim();
+    }
+
+    function extractArticle(html, url) {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+
+      // Remove non-content elements
+      const remove = "script,style,nav,header,footer,aside,iframe,form,button,svg,noscript,[role=navigation],[role=banner],[role=complementary],.sidebar,.nav,.menu,.footer,.header,.comments,.ad,.advertisement";
+      doc.querySelectorAll(remove).forEach(el => el.remove());
+
+      // Try <article> first, then <main>, then fall back to largest text block
+      let root = doc.querySelector("article") || doc.querySelector("main") || doc.querySelector("[role=main]");
+
+      if (!root) {
+        // Find the div/section with the most <p> text
+        let best = null, bestLen = 0;
+        doc.querySelectorAll("div, section").forEach(el => {
+          const ps = el.querySelectorAll("p");
+          let len = 0;
+          ps.forEach(p => len += p.textContent.length);
+          if (len > bestLen) { bestLen = len; best = el; }
+        });
+        root = best || doc.body;
+      }
+
+      // Extract structured text
+      const blocks = [];
+      const seen = new Set();
+      root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre").forEach(el => {
+        const text = el.textContent.trim();
+        if (!text || seen.has(text)) return;
+        seen.add(text);
+        const tag = el.tagName.toLowerCase();
+        if (tag.match(/^h[1-6]$/)) {
+          blocks.push("\n" + "#".repeat(parseInt(tag[1])) + " " + text + "\n");
+        } else if (tag === "li") {
+          blocks.push("- " + text);
+        } else if (tag === "blockquote") {
+          blocks.push("> " + text);
+        } else {
+          blocks.push(text);
+        }
+      });
+
+      return blocks.join("\n\n");
     }
 
     textarea.addEventListener("input", () => {
       btn.disabled = !textarea.value.trim();
+      statusMsg.textContent = "";
     });
 
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const text = textarea.value.trim();
       if (!text) return;
+      // If it's a URL, fetch it first
+      if (looksLikeUrl(text)) {
+        await fetchArticle(text);
+        // After fetch, start reading with whatever is in the textarea
+        const finalText = textarea.value.trim();
+        if (!finalText || looksLikeUrl(finalText)) return;
+        sessionStorage.setItem("novaReaderText", finalText);
+        sessionStorage.removeItem("novaReaderBlocks");
+        window.location.href = "reader.html";
+        return;
+      }
       sessionStorage.setItem("novaReaderText", text);
       sessionStorage.removeItem("novaReaderBlocks");
       window.location.href = "reader.html";
     });
 
-    // Also allow Ctrl/Cmd+Enter to start
+    // Ctrl/Cmd+Enter to start
     textarea.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && textarea.value.trim()) {
         btn.click();
