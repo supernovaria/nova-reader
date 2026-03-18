@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova Reader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="reader.css">
+</head>
+<body>
+  <div id="reader">
+    <!-- Top bar -->
+    <div id="top-bar">
+      <div id="progress-container">
+        <div id="progress-bar"></div>
+      </div>
+      <div id="status">
+        <span id="wpm-display">300 WPM</span>
+        <span id="word-counter">0 / 0</span>
+        <span id="pause-indicator" class="hidden">PAUSED</span>
+      </div>
+    </div>
+
+    <!-- Main display area -->
+    <div id="display-area">
+      <div id="context-before" class="context"></div>
+
+      <div id="word-container">
+        <div id="focus-line-top"></div>
+        <div id="word-display">
+          <span id="heading-indicator"></span><span id="paren-indicator"></span><span id="hyphen-indicator"></span><span id="word-before"></span><span id="word-orp"></span><span id="word-after"></span>
+        </div>
+        <div id="focus-line-bottom"></div>
+      </div>
+
+      <div id="context-after" class="context"></div>
+    </div>
+
+    <!-- Image overlay (shown when an image auto-pauses playback) -->
+    <div id="image-overlay" class="hidden">
+      <img id="image-display" src="" alt="">
+      <div id="image-caption"></div>
+      <div id="image-hint">Press <kbd>Space</kbd> to continue</div>
+    </div>
+
+    <!-- Full text panel (shown when paused) -->
+    <div id="fulltext-panel" class="hidden">
+      <div id="fulltext-scroll"></div>
+    </div>
+
+    <!-- ToC overlay -->
+    <div id="toc-overlay" class="hidden">
+      <div id="toc-content">
+        <div id="toc-header">
+          <strong>Table of Contents</strong>
+          <button id="toc-close" class="notice-dismiss">&times;</button>
+        </div>
+        <div id="toc-list"></div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+      <button class="ctrl-btn" id="btn-para-back" title="Previous paragraph">&#x23EE;</button>
+      <button class="ctrl-btn" id="btn-word-back" title="Previous word">&#x23F4;</button>
+      <button class="ctrl-btn large" id="btn-pause" title="Pause / Resume">&#x23F5;</button>
+      <button class="ctrl-btn" id="btn-word-fwd" title="Next word">&#x23F5;</button>
+      <button class="ctrl-btn" id="btn-para-fwd" title="Next paragraph">&#x23ED;</button>
+      <span class="separator"></span>
+      <button class="ctrl-btn speed-btn" id="btn-slower" title="Slower (S)">
+        <svg viewBox="0 0 28 24" width="20" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5.05 18.36 A9 9 0 1 1 12.5 22"/>
+          <polyline points="12 13 12 7.5"/>
+          <polyline points="12 13 15.5 15"/>
+          <line x1="10.5" y1="1.5" x2="13.5" y2="1.5"/>
+          <line x1="1" y1="20" x2="7" y2="20" stroke-width="2.5"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn speed-btn" id="btn-faster" title="Faster (D)">
+        <svg viewBox="0 0 28 24" width="20" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18.95 18.36 A9 9 0 1 0 11.5 22"/>
+          <polyline points="12 13 12 7.5"/>
+          <polyline points="12 13 15.5 15"/>
+          <line x1="10.5" y1="1.5" x2="13.5" y2="1.5"/>
+          <line x1="21" y1="20" x2="27" y2="20" stroke-width="2.5"/>
+          <line x1="24" y1="17" x2="24" y2="23" stroke-width="2.5"/>
+        </svg>
+      </button>
+      <span class="separator"></span>
+      <button class="ctrl-btn" id="btn-toc" title="Table of Contents" style="font-size:15px;">&#x2630;</button>
+    </div>
+
+    <!-- Start overlay -->
+    <div id="start-overlay">
+      <div class="start-content">
+        <h2>Ready to Read</h2>
+        <p id="word-count-info"></p>
+        <p class="start-hint">Press <kbd>Space</kbd> or tap to start</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+  <script src="reader.js"></script>
+</body>
+</html>
