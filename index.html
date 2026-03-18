@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Nova Reader</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#e63946">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
@@ -165,8 +167,26 @@
   </div>
 
   <script>
+    // Register service worker (required for PWA install + share target)
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js");
+    }
+
     const textarea = document.getElementById("paste-area");
     const btn = document.getElementById("btn-start");
+
+    // Handle share target: populate textarea with shared text/url
+    const params = new URLSearchParams(location.search);
+    const sharedText = params.get("text") || "";
+    const sharedUrl = params.get("url") || "";
+    const sharedTitle = params.get("title") || "";
+    const shared = [sharedTitle, sharedText, sharedUrl].filter(Boolean).join("\n\n");
+    if (shared) {
+      textarea.value = shared;
+      btn.disabled = false;
+      // Clean URL so refreshing doesn't re-share
+      history.replaceState(null, "", location.pathname);
+    }
 
     textarea.addEventListener("input", () => {
       btn.disabled = !textarea.value.trim();
