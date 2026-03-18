@@ -344,6 +344,8 @@ body {
   overflow-x: hidden;
   padding: 20px 32px 60px;
   transition: opacity 0.25s ease;
+  display: flex;
+  align-items: center;
 }
 #fulltext-panel.hidden {
   opacity: 0;
