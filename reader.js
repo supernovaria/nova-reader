@@ -997,13 +997,8 @@
 
     if (!touchMoved && Math.abs(dx) > MOVE_THRESHOLD) {
       touchMoved = true;
-      // If we haven't held yet, this is a pure swipe — don't freeze
-      if (!touchHeld && playing) {
-        // Soft-freeze for swipe too (hold word while adjusting speed)
-        softFrozen = true;
-        clearTimeout(timer);
-        playing = false;
-      }
+      // Cancel hold timer — this is a swipe, not a hold
+      clearTimeout(holdTimer);
     }
 
     if (touchMoved) {
@@ -1020,13 +1015,12 @@
 
   touchZone.addEventListener("touchend", () => {
     clearTimeout(holdTimer);
-    const elapsed = Date.now() - touchStartTime;
 
     if (!touchMoved && !touchHeld) {
       // Quick tap: toggle pause
       togglePause();
     } else if (softFrozen) {
-      // Release from hold or swipe: resume if was playing
+      // Release from hold (or hold+swipe): resume if was playing
       if (wasPlayingBeforeHold) {
         playing = true;
         rampWordsRemaining = 0; // no ramp-up, continue at speed
@@ -1034,6 +1028,7 @@
       }
       softFrozen = false;
     }
+    // Pure swipe (touchMoved && !softFrozen): speed was adjusted live, nothing to resume
 
     touchStartX = null;
   }, { passive: true });
@@ -1094,6 +1089,13 @@
   }
 
   startOverlay.addEventListener("click", start);
+  // Ensure tap works on mobile (some browsers delay click on elements without touch handlers)
+  startOverlay.addEventListener("touchend", (e) => {
+    if (!startOverlay.classList.contains("hidden")) {
+      e.preventDefault();
+      start();
+    }
+  });
 
   // Window resize
   window.addEventListener("resize", () => {
