@@ -194,6 +194,8 @@ body {
   padding: 12px 24px 18px;
   flex-shrink: 0;
   user-select: none;
+  position: relative;
+  z-index: 20; /* above fulltext panel (z-index 10) */
 }
 
 .ctrl-btn {
@@ -239,6 +241,37 @@ body {
   height: 22px;
   background: rgba(128, 128, 128, 0.2);
   margin: 0 6px;
+}
+
+/* Swipe speed zone (touch area below controls) */
+#swipe-zone {
+  height: 48px;
+  flex-shrink: 0;
+  user-select: none;
+  touch-action: none;
+  position: relative;
+  z-index: 20;
+}
+
+/* WPM toast (shown briefly during swipe) */
+#wpm-toast {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 100;
+}
+#wpm-toast.visible {
+  opacity: 1;
 }
 
 /* Start overlay */
@@ -337,12 +370,15 @@ body {
 /* Full-text panel (shown when paused) */
 #fulltext-panel {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 110px; /* leave room for controls + swipe zone */
   background: var(--bg);
   z-index: 10;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px 32px 60px;
+  padding: 20px 32px 20px;
   transition: opacity 0.25s ease;
   display: flex;
   align-items: center;

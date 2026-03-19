@@ -465,10 +465,14 @@
 
   function placeFocusLines() {
     if (focusLinesPlaced) return;
-    const displayRect = wordDisplayEl.getBoundingClientRect();
+    // Use the ORP element for precise vertical measurement — it always has content
+    // during placement (called from positionWord after displayWord sets text).
+    // Fall back to word-display if ORP is empty.
+    const measureEl = wordOrp.textContent ? wordOrp : wordDisplayEl;
+    const measureRect = measureEl.getBoundingClientRect();
     const containerRect = wordContainer.getBoundingClientRect();
-    const textTop = displayRect.top - containerRect.top;
-    const textBottom = displayRect.bottom - containerRect.top;
+    const textTop = measureRect.top - containerRect.top;
+    const textBottom = measureRect.bottom - containerRect.top;
     const lineH = settings.focusLineHeight;
     const gap = 4;
 
@@ -938,6 +942,56 @@
   document.getElementById("btn-para-fwd").addEventListener("click", paragraphForward);
   document.getElementById("btn-slower").addEventListener("click", () => adjustSpeed(-settings.wpmStep));
   document.getElementById("btn-faster").addEventListener("click", () => adjustSpeed(settings.wpmStep));
+
+  // ── Swipe to adjust speed (touch) ──
+  const swipeZone = document.getElementById("swipe-zone");
+  const wpmToast = document.getElementById("wpm-toast");
+  let swipeStartX = null;
+  let swipeBaseWpm = 0;
+  let toastTimeout = null;
+
+  function showWpmToast() {
+    wpmToast.textContent = settings.wpm + " WPM";
+    wpmToast.classList.add("visible");
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => wpmToast.classList.remove("visible"), 800);
+  }
+
+  // Listen on the entire controls + swipe area
+  const touchTargets = [swipeZone, document.getElementById("controls")];
+  touchTargets.forEach(el => {
+    el.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      swipeStartX = e.touches[0].clientX;
+      swipeBaseWpm = settings.wpm;
+    }, { passive: true });
+
+    el.addEventListener("touchmove", (e) => {
+      if (swipeStartX === null) return;
+      const dx = e.touches[0].clientX - swipeStartX;
+      // 1 WPM per 2px of horizontal movement
+      const delta = Math.round(dx / 2);
+      const newWpm = Math.max(10, swipeBaseWpm + delta);
+      if (newWpm !== settings.wpm) {
+        settings.wpm = newWpm;
+        updateWpmDisplay();
+        showWpmToast();
+        if (playing) {
+          clearTimeout(timer);
+          const delay = getDelay(Math.max(0, currentIndex - 1));
+          timer = setTimeout(tick, delay);
+        }
+      }
+    }, { passive: true });
+
+    el.addEventListener("touchend", () => {
+      swipeStartX = null;
+    }, { passive: true });
+
+    el.addEventListener("touchcancel", () => {
+      swipeStartX = null;
+    }, { passive: true });
+  });
 
   // ── ToC ──
   function buildToc() {

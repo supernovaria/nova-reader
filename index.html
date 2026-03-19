@@ -182,15 +182,22 @@
     const sharedText = params.get("text") || "";
     const sharedUrl = params.get("url") || "";
     const sharedTitle = params.get("title") || "";
-    // Prefer URL if present, otherwise combine what we have
-    const shared = sharedUrl || [sharedTitle, sharedText].filter(Boolean).join("\n\n");
+    // Find a URL from any of the shared fields (apps send URLs in different params)
+    const urlFromFields = [sharedUrl, sharedText, sharedTitle]
+      .flatMap(s => s.split(/\s+/))
+      .find(s => /^https?:\/\/\S+$/.test(s));
+    const shared = urlFromFields || [sharedTitle, sharedText, sharedUrl].filter(Boolean).join("\n\n");
     if (shared) {
-      textarea.value = shared;
-      btn.disabled = false;
       history.replaceState(null, "", location.pathname);
-      // Auto-fetch if it's a URL
-      if (looksLikeUrl(shared.trim())) {
-        fetchArticle(shared.trim());
+      if (urlFromFields) {
+        // Auto-fetch URL and go straight to reader
+        textarea.value = urlFromFields;
+        btn.disabled = true;
+        statusMsg.textContent = "Fetching article...";
+        fetchAndRead(urlFromFields);
+      } else {
+        textarea.value = shared;
+        btn.disabled = false;
       }
     }
 
@@ -200,26 +207,28 @@
     }
 
     async function fetchArticle(url) {
-      btn.disabled = true;
-      statusMsg.textContent = "Fetching article...";
+      const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) throw new Error("Fetch failed");
+      const html = await resp.text();
+      return extractArticle(html, url);
+    }
+
+    // Fetch URL and go straight to reader
+    async function fetchAndRead(url) {
       try {
-        const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-        const resp = await fetch(proxyUrl);
-        if (!resp.ok) throw new Error("Fetch failed");
-        const html = await resp.text();
-        const extracted = extractArticle(html, url);
+        const extracted = await fetchArticle(url);
         if (extracted && extracted.length > 100) {
-          textarea.value = extracted;
-          statusMsg.textContent = "Article extracted. Press Start Reading.";
-        } else {
-          statusMsg.textContent = "Could not extract article. Paste the text manually.";
-          textarea.value = url;
+          sessionStorage.setItem("novaReaderText", extracted);
+          sessionStorage.removeItem("novaReaderBlocks");
+          window.location.href = "reader.html";
+          return;
         }
-      } catch (e) {
-        statusMsg.textContent = "Could not fetch URL. Paste the text manually.";
-        textarea.value = url;
-      }
-      btn.disabled = !textarea.value.trim();
+      } catch {}
+      // Fallback: show textarea with URL
+      statusMsg.textContent = "Could not fetch article. Paste the text manually.";
+      textarea.value = url;
+      btn.disabled = false;
     }
 
     function extractArticle(html, url) {
@@ -274,15 +283,10 @@
     btn.addEventListener("click", async () => {
       const text = textarea.value.trim();
       if (!text) return;
-      // If it's a URL, fetch it first
       if (looksLikeUrl(text)) {
-        await fetchArticle(text);
-        // After fetch, start reading with whatever is in the textarea
-        const finalText = textarea.value.trim();
-        if (!finalText || looksLikeUrl(finalText)) return;
-        sessionStorage.setItem("novaReaderText", finalText);
-        sessionStorage.removeItem("novaReaderBlocks");
-        window.location.href = "reader.html";
+        btn.disabled = true;
+        statusMsg.textContent = "Fetching article...";
+        await fetchAndRead(text);
         return;
       }
       sessionStorage.setItem("novaReaderText", text);
