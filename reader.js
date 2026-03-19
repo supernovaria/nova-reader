@@ -766,7 +766,7 @@
     rampWordsRemaining = settings.rampUpWords;
     hideContext();
     pauseIndicator.classList.add("hidden");
-    btnPause.innerHTML = "&#x23F8;";
+    btnPause.textContent = "\u2016";
     tick();
   }
 
@@ -775,7 +775,7 @@
     clearTimeout(timer);
     pausedAtTime = Date.now();
     pauseIndicator.classList.remove("hidden");
-    btnPause.innerHTML = "&#x23F5;";
+    btnPause.textContent = "\u25B6";
     showContext();
   }
 
