@@ -231,6 +231,8 @@ body {
   background: var(--orp);
   color: #fff;
   border-color: transparent;
+  letter-spacing: -4px;
+  padding-right: 0;
 }
 .ctrl-btn.large:hover {
   background: #c1121f;

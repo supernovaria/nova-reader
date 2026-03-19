@@ -766,7 +766,7 @@
     rampWordsRemaining = settings.rampUpWords;
     hideContext();
     pauseIndicator.classList.add("hidden");
-    btnPause.textContent = "\u2016";
+    btnPause.innerHTML = "&#9646;&#9646;";
     tick();
   }
 
@@ -979,20 +979,25 @@
     softFrozen = false;
     wasPlayingBeforeHold = playing;
 
-    // Start hold timer
-    holdTimer = setTimeout(() => {
-      touchHeld = true;
-      if (!touchMoved && playing) {
-        // Soft-freeze: stop advancing words but don't show fulltext
-        softFrozen = true;
-        clearTimeout(timer);
-        playing = false;
-      }
-    }, HOLD_DELAY);
+    // Only enable hold/swipe when playing (not when fully paused with fulltext)
+    if (playing) {
+      holdTimer = setTimeout(() => {
+        touchHeld = true;
+        if (!touchMoved) {
+          // Soft-freeze: stop advancing words but don't show fulltext
+          softFrozen = true;
+          clearTimeout(timer);
+          playing = false;
+        }
+      }, HOLD_DELAY);
+    }
   }, { passive: true });
 
   touchZone.addEventListener("touchmove", (e) => {
     if (touchStartX === null) return;
+    // No swipe interaction when fully paused
+    if (!wasPlayingBeforeHold && !softFrozen) return;
+
     const dx = e.touches[0].clientX - touchStartX;
 
     if (!touchMoved && Math.abs(dx) > MOVE_THRESHOLD) {
@@ -1028,7 +1033,7 @@
       }
       softFrozen = false;
     }
-    // Pure swipe (touchMoved && !softFrozen): speed was adjusted live, nothing to resume
+    // Pure swipe while playing: speed was adjusted live, nothing to resume
 
     touchStartX = null;
   }, { passive: true });
