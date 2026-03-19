@@ -943,11 +943,11 @@
   document.getElementById("btn-slower").addEventListener("click", () => adjustSpeed(-settings.wpmStep));
   document.getElementById("btn-faster").addEventListener("click", () => adjustSpeed(settings.wpmStep));
 
-  // ── Swipe to adjust speed (touch) ──
-  const swipeZone = document.getElementById("swipe-zone");
+  // ── Touch zone interactions ──
+  // Tap: toggle pause.  Hold: freeze word (soft pause).  Swipe: adjust speed.
+  // Hold+swipe: freeze word + adjust speed.
+  const touchZone = document.getElementById("touch-zone");
   const wpmToast = document.getElementById("wpm-toast");
-  let swipeStartX = null;
-  let swipeBaseWpm = 0;
   let toastTimeout = null;
 
   function showWpmToast() {
@@ -957,41 +957,97 @@
     toastTimeout = setTimeout(() => wpmToast.classList.remove("visible"), 800);
   }
 
-  // Listen on the entire controls + swipe area
-  const touchTargets = [swipeZone, document.getElementById("controls")];
-  touchTargets.forEach(el => {
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1) return;
-      swipeStartX = e.touches[0].clientX;
-      swipeBaseWpm = settings.wpm;
-    }, { passive: true });
+  const HOLD_DELAY = 200;   // ms before a press counts as "hold"
+  const MOVE_THRESHOLD = 8; // px before a touch counts as "swipe"
 
-    el.addEventListener("touchmove", (e) => {
-      if (swipeStartX === null) return;
-      const dx = e.touches[0].clientX - swipeStartX;
-      // 1 WPM per 2px of horizontal movement
+  let touchStartX = null;
+  let touchStartTime = 0;
+  let touchBaseWpm = 0;
+  let touchMoved = false;    // true once movement exceeds threshold
+  let touchHeld = false;     // true once hold timer fires
+  let holdTimer = null;
+  let wasPlayingBeforeHold = false;  // remember playback state before hold-freeze
+  let softFrozen = false;    // true during hold-freeze (no fulltext panel)
+
+  touchZone.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartTime = Date.now();
+    touchBaseWpm = settings.wpm;
+    touchMoved = false;
+    touchHeld = false;
+    softFrozen = false;
+    wasPlayingBeforeHold = playing;
+
+    // Start hold timer
+    holdTimer = setTimeout(() => {
+      touchHeld = true;
+      if (!touchMoved && playing) {
+        // Soft-freeze: stop advancing words but don't show fulltext
+        softFrozen = true;
+        clearTimeout(timer);
+        playing = false;
+      }
+    }, HOLD_DELAY);
+  }, { passive: true });
+
+  touchZone.addEventListener("touchmove", (e) => {
+    if (touchStartX === null) return;
+    const dx = e.touches[0].clientX - touchStartX;
+
+    if (!touchMoved && Math.abs(dx) > MOVE_THRESHOLD) {
+      touchMoved = true;
+      // If we haven't held yet, this is a pure swipe — don't freeze
+      if (!touchHeld && playing) {
+        // Soft-freeze for swipe too (hold word while adjusting speed)
+        softFrozen = true;
+        clearTimeout(timer);
+        playing = false;
+      }
+    }
+
+    if (touchMoved) {
+      // Adjust speed: 1 WPM per 2px
       const delta = Math.round(dx / 2);
-      const newWpm = Math.max(10, swipeBaseWpm + delta);
+      const newWpm = Math.max(10, touchBaseWpm + delta);
       if (newWpm !== settings.wpm) {
         settings.wpm = newWpm;
         updateWpmDisplay();
         showWpmToast();
-        if (playing) {
-          clearTimeout(timer);
-          const delay = getDelay(Math.max(0, currentIndex - 1));
-          timer = setTimeout(tick, delay);
-        }
       }
-    }, { passive: true });
+    }
+  }, { passive: true });
 
-    el.addEventListener("touchend", () => {
-      swipeStartX = null;
-    }, { passive: true });
+  touchZone.addEventListener("touchend", () => {
+    clearTimeout(holdTimer);
+    const elapsed = Date.now() - touchStartTime;
 
-    el.addEventListener("touchcancel", () => {
-      swipeStartX = null;
-    }, { passive: true });
-  });
+    if (!touchMoved && !touchHeld) {
+      // Quick tap: toggle pause
+      togglePause();
+    } else if (softFrozen) {
+      // Release from hold or swipe: resume if was playing
+      if (wasPlayingBeforeHold) {
+        playing = true;
+        rampWordsRemaining = 0; // no ramp-up, continue at speed
+        tick();
+      }
+      softFrozen = false;
+    }
+
+    touchStartX = null;
+  }, { passive: true });
+
+  touchZone.addEventListener("touchcancel", () => {
+    clearTimeout(holdTimer);
+    if (softFrozen && wasPlayingBeforeHold) {
+      playing = true;
+      rampWordsRemaining = 0;
+      tick();
+      softFrozen = false;
+    }
+    touchStartX = null;
+  }, { passive: true });
 
   // ── ToC ──
   function buildToc() {

@@ -243,14 +243,18 @@ body {
   margin: 0 6px;
 }
 
-/* Swipe speed zone (touch area below controls) */
-#swipe-zone {
-  height: 48px;
-  flex-shrink: 0;
+/* Touch zone: overlays bottom half of screen above controls.
+   tap=pause, hold=freeze word, swipe=adjust speed */
+#touch-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 68px; /* above controls bar */
+  height: 45%;
   user-select: none;
   touch-action: none;
-  position: relative;
-  z-index: 20;
+  z-index: 15; /* above display, below controls */
+  cursor: pointer;
 }
 
 /* WPM toast (shown briefly during swipe) */
@@ -373,7 +377,7 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  bottom: 110px; /* leave room for controls + swipe zone */
+  bottom: 68px; /* leave room for controls bar */
   background: var(--bg);
   z-index: 10;
   overflow-y: auto;
