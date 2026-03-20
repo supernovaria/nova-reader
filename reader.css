@@ -46,6 +46,8 @@ body {
 #top-bar {
   padding: 12px 24px 8px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 15; /* above fulltext panel */
 }
 
 #progress-container {

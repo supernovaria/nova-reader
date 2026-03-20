@@ -938,7 +938,7 @@
 
   function updateWpmDisplay() {
     if (targetRampActive && settings.targetWpm > 0) {
-      wpmDisplay.innerHTML = settings.wpm + " \u2192 <em>" + settings.targetWpm + "</em> WPM";
+      wpmDisplay.innerHTML = "<span style=\"color:var(--orp)\">" + settings.wpm + "</span> \u2192 <em>" + settings.targetWpm + "</em> WPM";
     } else {
       wpmDisplay.textContent = settings.wpm + " WPM";
     }
