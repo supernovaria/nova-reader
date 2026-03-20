@@ -453,7 +453,7 @@
 
     // Dim words inside parentheses by nesting level
     if (parenDepth > 0) {
-      const reduction = [0, 0.20, 0.35, 0.40][Math.min(parenDepth, 3)] || 0.45;
+      const reduction = [0, 0.30, 0.45, 0.50][Math.min(parenDepth, 3)] || 0.55;
       wordDisplayEl.style.opacity = String(1 - reduction);
     } else {
       wordDisplayEl.style.opacity = "";
