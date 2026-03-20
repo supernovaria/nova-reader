@@ -17,6 +17,10 @@ const DEFAULT_SETTINGS = {
   longWordExtraMs: 0,       // extra ms per character beyond threshold
   longWordThreshold: 8,     // characters before extra delay kicks in
 
+  // Target speed ramp (0 = disabled)
+  targetWpm: 0,             // gradually increase toward this WPM
+  targetWpmRampMinutes: 5,  // minutes over which to reach target
+
   // Keybindings
   keyPause: " ",            // spacebar
   keySlower: "s",

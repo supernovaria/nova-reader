@@ -141,6 +141,58 @@
       font-size: 12px;
     }
 
+    .settings-section {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0;
+    }
+    .settings-section summary {
+      padding: 10px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .settings-section[open] summary {
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-grid {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .settings-grid label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .settings-grid input {
+      width: 80px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      text-align: right;
+    }
+    .btn-save {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-top: 1px solid var(--border);
+      background: none;
+      color: var(--accent);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-save:hover { opacity: 0.7; }
+
     .controls-hint {
       text-align: center;
       color: var(--muted);
@@ -159,9 +211,20 @@
     <button class="btn-primary" id="btn-start" disabled>Start Reading</button>
     <p id="status-msg" class="hint"></p>
 
+    <details class="settings-section">
+      <summary>Settings</summary>
+      <div class="settings-grid">
+        <label>WPM <input type="number" id="s-wpm" min="50" max="1500"></label>
+        <label>Target WPM <input type="number" id="s-targetWpm" min="0" max="1500" placeholder="0 = off"></label>
+        <label>Ramp minutes <input type="number" id="s-targetWpmRampMinutes" min="0.5" max="60" step="0.5"></label>
+      </div>
+      <button class="btn-save" id="btn-save-settings">Save</button>
+    </details>
+
     <div class="controls-hint">
       <kbd>Space</kbd> pause/resume &nbsp;
       <kbd>S</kbd>/<kbd>D</kbd> slower/faster &nbsp;
+      <kbd>W</kbd> toggle target speed &nbsp;
       <kbd>&larr;</kbd><kbd>&rarr;</kbd> word &nbsp;
       <kbd>&uarr;</kbd><kbd>&darr;</kbd> paragraph
     </div>
@@ -176,6 +239,23 @@
     const textarea = document.getElementById("paste-area");
     const btn = document.getElementById("btn-start");
     const statusMsg = document.getElementById("status-msg");
+
+    // Load settings into form
+    loadSettings().then(s => {
+      document.getElementById("s-wpm").value = s.wpm;
+      document.getElementById("s-targetWpm").value = s.targetWpm || "";
+      document.getElementById("s-targetWpmRampMinutes").value = s.targetWpmRampMinutes;
+    });
+    document.getElementById("btn-save-settings").addEventListener("click", async () => {
+      const s = await loadSettings();
+      s.wpm = parseInt(document.getElementById("s-wpm").value, 10) || s.wpm;
+      s.targetWpm = parseInt(document.getElementById("s-targetWpm").value, 10) || 0;
+      s.targetWpmRampMinutes = parseFloat(document.getElementById("s-targetWpmRampMinutes").value) || 5;
+      await saveSettings(s);
+      const btn = document.getElementById("btn-save-settings");
+      btn.textContent = "Saved!";
+      setTimeout(() => btn.textContent = "Save", 1000);
+    });
 
     // Handle share target: populate textarea with shared text/url
     const params = new URLSearchParams(location.search);

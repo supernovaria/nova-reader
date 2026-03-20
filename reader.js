@@ -17,6 +17,10 @@
   let pausedAtTime = 0;        // timestamp of last pause (for dynamic ramp-up)
   let currentRampFraction = 0.5; // dynamically set on each resume
 
+  // Target speed ramp
+  let targetRampActive = false;   // toggled with W key
+  let targetRampRate = 0;         // WPM increase per word played
+
   // ── Load ──
   settings = await loadSettings();
   applyTheme();
@@ -799,6 +803,7 @@
 
     displayWord(currentIndex);
     const delay = getDelay(currentIndex);
+    applyTargetRamp();
     currentIndex++;
     timer = setTimeout(tick, delay);
   }
@@ -858,6 +863,7 @@
 
   function adjustSpeed(delta) {
     settings.wpm = Math.max(10, settings.wpm + delta);
+    recalcTargetRampRate();
     updateWpmDisplay();
     if (playing) {
       clearTimeout(timer);
@@ -866,8 +872,51 @@
     }
   }
 
+  // ── Target speed ramp ──
+  function recalcTargetRampRate() {
+    if (!targetRampActive || !settings.targetWpm || settings.wpm >= settings.targetWpm) {
+      targetRampRate = 0;
+      return;
+    }
+    const delta = settings.targetWpm - settings.wpm;
+    const avgWpm = (settings.wpm + settings.targetWpm) / 2;
+    const totalWords = avgWpm * settings.targetWpmRampMinutes;
+    targetRampRate = delta / totalWords;
+  }
+
+  function toggleTargetRamp() {
+    if (!settings.targetWpm || settings.targetWpm <= 0) return;
+    targetRampActive = !targetRampActive;
+    if (targetRampActive) recalcTargetRampRate();
+    updateWpmDisplay();
+  }
+
+  // Fractional accumulator for sub-1 WPM increments
+  let targetRampAccum = 0;
+
+  function applyTargetRamp() {
+    if (!targetRampActive || targetRampRate <= 0) return;
+    if (settings.wpm >= settings.targetWpm) {
+      settings.wpm = settings.targetWpm;
+      targetRampRate = 0;
+      updateWpmDisplay();
+      return;
+    }
+    targetRampAccum += targetRampRate;
+    if (targetRampAccum >= 1) {
+      const bump = Math.floor(targetRampAccum);
+      targetRampAccum -= bump;
+      settings.wpm = Math.min(settings.wpm + bump, settings.targetWpm);
+      updateWpmDisplay();
+    }
+  }
+
   function updateWpmDisplay() {
-    wpmDisplay.textContent = settings.wpm + " WPM";
+    if (targetRampActive && settings.targetWpm > 0) {
+      wpmDisplay.innerHTML = settings.wpm + " \u2192 <em>" + settings.targetWpm + "</em> WPM";
+    } else {
+      wpmDisplay.textContent = settings.wpm + " WPM";
+    }
   }
 
   // ── Theme ──
@@ -927,6 +976,9 @@
     } else if (key === settings.keyParagraphForward) {
       e.preventDefault();
       paragraphForward();
+    } else if (key === "w" || key === "W") {
+      e.preventDefault();
+      toggleTargetRamp();
     } else if (key === "Escape") {
       if (!tocOverlay.classList.contains("hidden")) {
         tocOverlay.classList.add("hidden");
@@ -955,6 +1007,8 @@
     wpmToast.classList.add("visible");
     clearTimeout(toastTimeout);
     toastTimeout = setTimeout(() => wpmToast.classList.remove("visible"), 800);
+    // Recalculate target ramp rate since speed changed via swipe
+    recalcTargetRampRate();
   }
 
   const HOLD_DELAY = 200;   // ms before a press counts as "hold"

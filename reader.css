@@ -74,6 +74,11 @@ body {
   user-select: none;
 }
 
+#wpm-display em {
+  font-style: italic;
+  opacity: 0.6;
+}
+
 #pause-indicator {
   color: var(--orp);
   font-weight: 700;
