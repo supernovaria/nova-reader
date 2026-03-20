@@ -451,9 +451,9 @@
     const parenDepth = parenStack.length;
     popParenCloses(word);
 
-    // Dim words inside parentheses: -10% per level, capped at -35%
+    // Dim words inside parentheses by nesting level
     if (parenDepth > 0) {
-      const reduction = Math.min(parenDepth <= 3 ? parenDepth * 0.10 : 0.35, 0.35);
+      const reduction = [0, 0.20, 0.35, 0.40][Math.min(parenDepth, 3)] || 0.45;
       wordDisplayEl.style.opacity = String(1 - reduction);
     } else {
       wordDisplayEl.style.opacity = "";
