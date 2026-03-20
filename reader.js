@@ -17,9 +17,11 @@
   let pausedAtTime = 0;        // timestamp of last pause (for dynamic ramp-up)
   let currentRampFraction = 0.5; // dynamically set on each resume
 
-  // Target speed ramp
+  // Target speed ramp (logistic S-curve)
   let targetRampActive = false;   // toggled with W key
-  let targetRampRate = 0;         // WPM increase per word played
+  let targetRampStartWpm = 0;     // WPM when ramp started/resumed
+  let targetRampWordsPlayed = 0;  // words played since ramp (re)started
+  let targetRampTotalWords = 0;   // total words over which to ramp
 
   // ── Load ──
   settings = await loadSettings();
@@ -439,7 +441,23 @@
     }
     wordDisplayEl.style.textDecoration = (fmt && fmt.strike) ? "line-through" : "";
 
+    // Render paren indicator BEFORE updating the stack for this word.
+    // The opening-paren word already shows "(" in its text, so the indicator
+    // starts on the NEXT word.
     renderParenIndicator();
+
+    // Update paren stack with this word's parens
+    pushParenOpens(word);
+    const parenDepth = parenStack.length;
+    popParenCloses(word);
+
+    // Dim words inside parentheses: -10% per level, capped at -35%
+    if (parenDepth > 0) {
+      const reduction = Math.min(parenDepth <= 3 ? parenDepth * 0.10 : 0.35, 0.35);
+      wordDisplayEl.style.opacity = String(1 - reduction);
+    } else {
+      wordDisplayEl.style.opacity = "";
+    }
 
     // Hyphen continuation indicator
     if (hyphenContinuation[index]) {
@@ -452,9 +470,6 @@
 
     positionWord();
     renderHeadingIndicator(index);
-
-    pushParenOpens(word);
-    popParenCloses(word);
 
     wordCounter.textContent = `${index + 1} / ${words.length}`;
     animateProgress(index);
@@ -873,42 +888,52 @@
   }
 
   // ── Target speed ramp ──
-  function recalcTargetRampRate() {
-    if (!targetRampActive || !settings.targetWpm || settings.wpm >= settings.targetWpm) {
-      targetRampRate = 0;
-      return;
-    }
-    const delta = settings.targetWpm - settings.wpm;
+  // Logistic S-curve: slow start, fast middle, slow finish
+  // Returns 0..1 for input t in 0..1
+  function logisticEase(t) {
+    // Steepness k=10 gives a nice S-shape within [0,1]
+    const k = 10;
+    const mid = 0.5;
+    const raw = 1 / (1 + Math.exp(-k * (t - mid)));
+    // Normalize so logisticEase(0)=0 and logisticEase(1)=1
+    const low = 1 / (1 + Math.exp(-k * (0 - mid)));
+    const high = 1 / (1 + Math.exp(-k * (1 - mid)));
+    return (raw - low) / (high - low);
+  }
+
+  function initTargetRamp() {
+    targetRampStartWpm = settings.wpm;
+    targetRampWordsPlayed = 0;
     const avgWpm = (settings.wpm + settings.targetWpm) / 2;
-    const totalWords = avgWpm * settings.targetWpmRampMinutes;
-    targetRampRate = delta / totalWords;
+    targetRampTotalWords = Math.max(1, avgWpm * settings.targetWpmRampMinutes);
+  }
+
+  function recalcTargetRampRate() {
+    if (!targetRampActive || !settings.targetWpm || settings.wpm >= settings.targetWpm) return;
+    // Re-anchor the ramp from current position
+    initTargetRamp();
   }
 
   function toggleTargetRamp() {
     if (!settings.targetWpm || settings.targetWpm <= 0) return;
     targetRampActive = !targetRampActive;
-    if (targetRampActive) recalcTargetRampRate();
+    if (targetRampActive) initTargetRamp();
     updateWpmDisplay();
   }
 
-  // Fractional accumulator for sub-1 WPM increments
-  let targetRampAccum = 0;
-
   function applyTargetRamp() {
-    if (!targetRampActive || targetRampRate <= 0) return;
+    if (!targetRampActive || !settings.targetWpm || settings.targetWpm <= 0) return;
     if (settings.wpm >= settings.targetWpm) {
       settings.wpm = settings.targetWpm;
-      targetRampRate = 0;
       updateWpmDisplay();
       return;
     }
-    targetRampAccum += targetRampRate;
-    if (targetRampAccum >= 1) {
-      const bump = Math.floor(targetRampAccum);
-      targetRampAccum -= bump;
-      settings.wpm = Math.min(settings.wpm + bump, settings.targetWpm);
-      updateWpmDisplay();
-    }
+    targetRampWordsPlayed++;
+    const t = Math.min(targetRampWordsPlayed / targetRampTotalWords, 1);
+    const eased = logisticEase(t);
+    const newWpm = Math.round(targetRampStartWpm + (settings.targetWpm - targetRampStartWpm) * eased);
+    settings.wpm = Math.min(newWpm, settings.targetWpm);
+    updateWpmDisplay();
   }
 
   function updateWpmDisplay() {
