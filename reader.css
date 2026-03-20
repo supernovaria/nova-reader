@@ -390,7 +390,7 @@ body {
 /* Full-text panel (shown when paused) */
 #fulltext-panel {
   position: absolute;
-  top: 0;
+  top: 56px; /* below top bar */
   left: 0;
   right: 0;
   bottom: 68px; /* leave room for controls bar */
