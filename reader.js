@@ -783,19 +783,22 @@
     rebuildParenStack(currentIndex - 1);
     playing = true;
     rampWordsRemaining = settings.rampUpWords;
+    clearTimeout(pauseContextTimer);
     hideContext();
     pauseIndicator.classList.add("hidden");
     btnPause.innerHTML = "&#9646;&#9646;";
     tick();
   }
 
+  let pauseContextTimer = null;
   function pause() {
     playing = false;
     clearTimeout(timer);
     pausedAtTime = Date.now();
     pauseIndicator.classList.remove("hidden");
     btnPause.textContent = "\u25B6";
-    showContext();
+    clearTimeout(pauseContextTimer);
+    pauseContextTimer = setTimeout(showContext, 150);
   }
 
   function togglePause() {
