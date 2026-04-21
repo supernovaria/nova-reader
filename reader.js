@@ -260,12 +260,12 @@
     while ((match = regex.exec(clean)) !== null) {
       const tok = match[0];
       const fmt = charFmt[match.index] || { bold: false, italic: false, code: false, strike: false };
-      if (tok.includes("\u2014")) {
-        const parts = tok.split(/(\u2014)/);
+      if (tok.includes("\u2014") || tok.includes("\u2013")) {
+        const parts = tok.split(/(\u2014|\u2013)/);
         for (const part of parts) {
           if (part) { tokens.push(part); formats.push(fmt); continuations.push(false); }
         }
-      } else if (tok.length > HYPHEN_SPLIT_THRESHOLD && tok.includes("-") && /[a-zA-Z]/.test(tok)) {
+      } else if (tok.length > HYPHEN_SPLIT_THRESHOLD && tok.includes("-") && /[a-zA-Z]/.test(tok) && !/^(https?:\/\/|www\.)/i.test(tok)) {
         const parts = tok.split(/(?<=-)/);
         let first = true;
         for (const part of parts) {
@@ -281,6 +281,28 @@
         formats.push(fmt);
         continuations.push(false);
       }
+    }
+
+    // Shorten raw URLs so they fit the RSVP frame. A long URL can't be parsed
+    // in one flash anyway, so collapse to "🔗 host…" and stash the full URL
+    // in the format for the fulltext panel.
+    const URL_LIKE = /^(https?:\/\/|www\.)\S+$/i;
+    for (let j = 0; j < tokens.length; j++) {
+      const tok = tokens[j];
+      const fmt = formats[j];
+      if (fmt && fmt.code) continue;
+      if (tok.length < 22) continue;
+      if (!URL_LIKE.test(tok)) continue;
+      const tail = tok.match(/[.,;:!?)\]"']+$/);
+      const bare = tail ? tok.slice(0, -tail[0].length) : tok;
+      try {
+        const asUrl = bare.startsWith("http") ? bare : "https://" + bare;
+        const parsed = new URL(asUrl);
+        const host = parsed.hostname.replace(/^www\./, "");
+        const hasPath = parsed.pathname && parsed.pathname !== "/";
+        tokens[j] = "\u{1F517} " + host + (hasPath ? "…" : "") + (tail ? tail[0] : "");
+        if (!fmt.link) formats[j] = { ...fmt, link: asUrl };
+      } catch {}
     }
 
     return { tokens, formats, continuations };
@@ -333,9 +355,18 @@
     }
   }
 
+  function isDashToken(word) {
+    return word === "\u2014" || word === "\u2013";
+  }
+
   function rebuildParenStack(upToIndex) {
     parenStack = [];
     for (let i = 0; i <= upToIndex; i++) {
+      if (isDashToken(words[i])) {
+        const dashIdx = parenStack.indexOf("\u2013");
+        if (dashIdx >= 0) parenStack.splice(dashIdx, 1);
+        else parenStack.push("\u2013");
+      }
       pushParenOpens(words[i]);
       popParenCloses(words[i]);
     }
@@ -439,20 +470,37 @@
     } else {
       wordDisplayEl.style.fontFamily = "";
     }
-    wordDisplayEl.style.textDecoration = (fmt && fmt.strike) ? "line-through" : "";
+    // Strike wins over link underline if both present
+    if (fmt && fmt.strike) {
+      wordDisplayEl.style.textDecoration = "line-through";
+    } else if (fmt && fmt.link) {
+      wordDisplayEl.style.textDecoration = "underline";
+      wordDisplayEl.style.textUnderlineOffset = "4px";
+    } else {
+      wordDisplayEl.style.textDecoration = "";
+      wordDisplayEl.style.textUnderlineOffset = "";
+    }
 
     // Render paren indicator BEFORE updating the stack for this word.
     // The opening-paren word already shows "(" in its text, so the indicator
     // starts on the NEXT word.
     renderParenIndicator();
 
+    // Handle dash parenthetical (em/en dashes toggle as open/close)
+    if (isDashToken(word)) {
+      const dashIdx = parenStack.indexOf("\u2013");
+      if (dashIdx >= 0) parenStack.splice(dashIdx, 1); // closing dash
+      else parenStack.push("\u2013"); // opening dash
+    }
+
     // Update paren stack with this word's parens
     pushParenOpens(word);
     const parenDepth = parenStack.length;
     popParenCloses(word);
 
-    // Dim words inside parentheses by nesting level
-    if (parenDepth > 0) {
+    // Dim words inside parentheses/dashes by nesting level
+    // Don't dim the dash delimiter tokens themselves
+    if (parenDepth > 0 && !isDashToken(word)) {
       const reduction = [0, 0.30, 0.45, 0.50][Math.min(parenDepth, 3)] || 0.55;
       wordDisplayEl.style.opacity = String(1 - reduction);
     } else {
@@ -468,8 +516,10 @@
       hyphenIndicatorEl.style.opacity = "0";
     }
 
-    positionWord();
+    // Heading indicator MUST run before positionWord so the indicator text
+    // and any fontWeight override are part of the measured layout.
     renderHeadingIndicator(index);
+    positionWord();
 
     wordCounter.textContent = `${index + 1} / ${words.length}`;
     animateProgress(index);
@@ -522,12 +572,13 @@
   let progressTo = 0;
   let progressStart = 0;
   let progressDuration = 200;
+  let pendingDelay = 0; // set by tick() before displayWord() so animateProgress reuses it
 
   function animateProgress(index) {
     const currentWidth = parseFloat(progressBar.style.width) || 0;
     progressFrom = currentWidth;
     progressTo = ((index + 1) / words.length) * 100;
-    progressDuration = playing ? getDelay(index) : 200;
+    progressDuration = playing && pendingDelay > 0 ? pendingDelay : 200;
     progressStart = performance.now();
     if (!progressAnimFrame) rafProgress();
   }
@@ -598,16 +649,34 @@
         el.className = "ft-para";
       }
 
+      // Group consecutive same-URL link words into a single <a> so the user
+      // can click anywhere in a multi-word link.
+      let currentAnchor = null;
+      let currentAnchorUrl = null;
       for (let i = start; i < end; i++) {
-        if (i > start) el.appendChild(document.createTextNode(" "));
+        const fmt = wordFormats[i];
+        const linkUrl = fmt && fmt.link ? fmt.link : null;
+
+        if (linkUrl !== currentAnchorUrl) {
+          currentAnchor = null;
+          currentAnchorUrl = null;
+        }
+
+        if (i > start) {
+          const prevFmt = wordFormats[i - 1];
+          const prevUrl = prevFmt && prevFmt.link ? prevFmt.link : null;
+          const separatorTarget = (prevUrl && prevUrl === linkUrl) ? currentAnchor : el;
+          (separatorTarget || el).appendChild(document.createTextNode(" "));
+        }
+
         const span = document.createElement("span");
         let cls = "ft-word";
-        const fmt = wordFormats[i];
         if (fmt) {
           if (fmt.bold) cls += " ft-bold";
           if (fmt.italic) cls += " ft-italic";
           if (fmt.code) cls += " ft-code";
           if (fmt.strike) cls += " ft-strike";
+          if (fmt.link) cls += " ft-link";
         }
         span.className = cls;
         const supSubHtml = renderSupSub(words[i]);
@@ -615,11 +684,34 @@
         else span.textContent = words[i];
         span.dataset.index = i;
         wordSpans[i] = span;
-        el.appendChild(span);
+
+        if (linkUrl) {
+          if (!currentAnchor) {
+            currentAnchor = document.createElement("a");
+            currentAnchor.href = linkUrl;
+            currentAnchor.target = "_blank";
+            currentAnchor.rel = "noopener noreferrer";
+            currentAnchor.className = "ft-anchor";
+            currentAnchor.title = linkUrl;
+            currentAnchorUrl = linkUrl;
+            el.appendChild(currentAnchor);
+          }
+          currentAnchor.appendChild(span);
+        } else {
+          el.appendChild(span);
+        }
       }
 
       fulltextScroll.appendChild(el);
     }
+
+    // Capture clicks that are part of a multi-click so an <a> inside a word
+    // doesn't fire twice when the user double-clicks to navigate.
+    fulltextScroll.addEventListener("click", (e) => {
+      if (e.detail > 1 && e.target.closest("a")) {
+        e.preventDefault();
+      }
+    }, true);
 
     fulltextScroll.addEventListener("dblclick", (e) => {
       const wordEl = e.target.closest(".ft-word");
@@ -746,7 +838,32 @@
   }
 
   // ── Image overlay ──
+  // Zoom state for the currently-displayed image. Reset whenever the overlay
+  // is hidden or a new image is shown, so resuming regular text never leaves
+  // a transform on the display element.
+  let imageScale = 1;
+  let imageX = 0;
+  let imageY = 0;
+  let imageDragging = false;
+  let imageDragStart = { x: 0, y: 0, ix: 0, iy: 0 };
+
+  function applyImageTransform() {
+    imageDisplay.style.transform =
+      `translate(${imageX}px, ${imageY}px) scale(${imageScale})`;
+    imageDisplay.style.cursor = imageScale > 1 ? (imageDragging ? "grabbing" : "grab") : "";
+  }
+
+  function resetImageTransform() {
+    imageScale = 1;
+    imageX = 0;
+    imageY = 0;
+    imageDragging = false;
+    imageDisplay.style.transform = "";
+    imageDisplay.style.cursor = "";
+  }
+
   function showImageOverlay(imgData) {
+    resetImageTransform();
     imageDisplay.src = imgData.src;
     imageDisplay.alt = imgData.alt;
     imageCaption.textContent = imgData.alt || "";
@@ -762,7 +879,51 @@
     imageOverlay.classList.add("hidden");
     imageDisplay.src = "";
     imageDisplay.onerror = null;
+    resetImageTransform();
   }
+
+  // Touchpad pinch-to-zoom: browsers send these as wheel events with ctrlKey=true.
+  // Also supports regular ctrl+scroll on a mouse.
+  imageOverlay.addEventListener("wheel", (e) => {
+    if (imageOverlay.classList.contains("hidden")) return;
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const rect = imageDisplay.getBoundingClientRect();
+    const cx = e.clientX - (rect.left + rect.width / 2);
+    const cy = e.clientY - (rect.top + rect.height / 2);
+    const prev = imageScale;
+    const target = Math.max(1, Math.min(6, prev * Math.exp(-e.deltaY * 0.01)));
+    const ratio = target / prev;
+    imageX = cx - (cx - imageX) * ratio;
+    imageY = cy - (cy - imageY) * ratio;
+    imageScale = target;
+    if (imageScale === 1) { imageX = 0; imageY = 0; }
+    applyImageTransform();
+  }, { passive: false });
+
+  // Pan by dragging when zoomed in
+  imageDisplay.addEventListener("mousedown", (e) => {
+    if (imageScale <= 1) return;
+    imageDragging = true;
+    imageDragStart = { x: e.clientX, y: e.clientY, ix: imageX, iy: imageY };
+    applyImageTransform();
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!imageDragging) return;
+    imageX = imageDragStart.ix + (e.clientX - imageDragStart.x);
+    imageY = imageDragStart.iy + (e.clientY - imageDragStart.y);
+    applyImageTransform();
+  });
+  window.addEventListener("mouseup", () => {
+    if (!imageDragging) return;
+    imageDragging = false;
+    applyImageTransform();
+  });
+  imageDisplay.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    resetImageTransform();
+  });
 
   // ── Playback ──
   function play() {
@@ -819,11 +980,13 @@
       return;
     }
 
+    // Compute delay ONCE, before displayWord → animateProgress reuses it via pendingDelay.
+    // (getDelay mutates rampWordsRemaining, so calling it twice per word was a bug.)
+    pendingDelay = getDelay(currentIndex);
     displayWord(currentIndex);
-    const delay = getDelay(currentIndex);
     applyTargetRamp();
     currentIndex++;
-    timer = setTimeout(tick, delay);
+    timer = setTimeout(tick, pendingDelay);
   }
 
   // ── Navigation ──

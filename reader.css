@@ -353,12 +353,20 @@ body {
   display: none;
 }
 
+#image-overlay {
+  overflow: hidden;
+}
+
 #image-display {
   max-width: 90%;
   max-height: 65vh;
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 #image-caption {
@@ -485,6 +493,22 @@ body {
   font-size: 0.9em;
 }
 .ft-strike { text-decoration: line-through; opacity: 0.6; }
+
+/* Links in fulltext */
+.ft-anchor {
+  text-decoration: none;
+  color: inherit;
+}
+.ft-link {
+  text-decoration: underline;
+  text-decoration-color: var(--orp);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.ft-anchor:hover .ft-link {
+  text-decoration-thickness: 2px;
+  background: rgba(230, 57, 70, 0.08);
+}
 
 /* Blockquote */
 .ft-blockquote {
