@@ -286,29 +286,74 @@
       return /^https?:\/\/\S+$/.test(text.trim()) && !text.includes("\n");
     }
 
+    // Try each CORS proxy in order. Public proxies go down sporadically,
+    // so a fallback keeps URL-fetch working when the primary is unavailable.
+    const PROXIES = [
+      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+      (u) => "https://corsproxy.io/?" + encodeURIComponent(u),
+    ];
+
     async function fetchArticle(url) {
-      const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-      const resp = await fetch(proxyUrl);
-      if (!resp.ok) throw new Error("Fetch failed");
-      const html = await resp.text();
-      return extractArticle(html, url);
+      let lastErr;
+      for (const makeProxyUrl of PROXIES) {
+        try {
+          const resp = await fetch(makeProxyUrl(url));
+          if (!resp.ok) { lastErr = new Error("HTTP " + resp.status); continue; }
+          const html = await resp.text();
+          const extracted = extractArticle(html, url);
+          if (extracted && extracted.text && extracted.text.length > 100) return extracted;
+          lastErr = new Error("empty");
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error("All proxies failed");
     }
 
     // Fetch URL and go straight to reader
     async function fetchAndRead(url) {
       try {
         const extracted = await fetchArticle(url);
-        if (extracted && extracted.length > 100) {
-          sessionStorage.setItem("novaReaderText", extracted);
+        sessionStorage.setItem("novaReaderText", extracted.text);
+        if (extracted.blocks && extracted.blocks.length) {
+          sessionStorage.setItem("novaReaderBlocks", JSON.stringify(extracted.blocks));
+        } else {
           sessionStorage.removeItem("novaReaderBlocks");
-          window.location.href = "reader.html";
-          return;
         }
+        window.location.href = "reader.html";
+        return;
       } catch {}
       // Fallback: show textarea with URL
       statusMsg.textContent = "Could not fetch article. Paste the text manually.";
       textarea.value = url;
       btn.disabled = false;
+    }
+
+    // Walk an element and produce a string where inline <a href> content is
+    // wrapped in markdown-link syntax [text](absoluteUrl). Other inline tags
+    // pass through as plain text. Used inside a leaf block (p/li/h*/etc.).
+    function textWithLinks(el, baseUrl) {
+      let out = "";
+      const abs = (href) => {
+        try { return new URL(href, baseUrl).href; } catch { return href; }
+      };
+      const esc = (s) => s.replace(/([\[\]()\\])/g, "\\$1");
+      const walk = (node) => {
+        if (node.nodeType === 3) { out += node.textContent; return; }
+        if (node.nodeType !== 1) return;
+        if (node.tagName === "A" && node.getAttribute("href")) {
+          const href = node.getAttribute("href");
+          if (href.startsWith("javascript:") || !node.textContent.trim()) {
+            for (const ch of node.childNodes) walk(ch);
+            return;
+          }
+          const inner = node.textContent.replace(/\s+/g, " ").trim();
+          if (inner) out += "[" + esc(inner) + "](" + abs(href) + ")";
+          return;
+        }
+        if (node.tagName === "BR") { out += " "; return; }
+        for (const ch of node.childNodes) walk(ch);
+      };
+      walk(el);
+      return out.replace(/\s+/g, " ").trim();
     }
 
     function extractArticle(html, url) {
@@ -322,7 +367,6 @@
       let root = doc.querySelector("article") || doc.querySelector("main") || doc.querySelector("[role=main]");
 
       if (!root) {
-        // Find the div/section with the most <p> text
         let best = null, bestLen = 0;
         doc.querySelectorAll("div, section").forEach(el => {
           const ps = el.querySelectorAll("p");
@@ -333,38 +377,61 @@
         root = best || doc.body;
       }
 
-      // Extract structured text — filter to LEAF blocks only. A <blockquote>
-      // that contains <p> children would otherwise concatenate their textContent
-      // with no whitespace ("down.It" bug).
-      const BLOCK_SEL = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre";
-      const allBlocks = Array.from(root.querySelectorAll(BLOCK_SEL));
-      const blockSet = new Set(allBlocks);
-      const leafBlocks = allBlocks.filter(b => {
-        for (const desc of b.querySelectorAll(BLOCK_SEL)) {
-          if (blockSet.has(desc)) return false;
-        }
-        return true;
-      });
-
+      // Walk in document order and emit structured blocks. Images become their
+      // own block (so the reader can show an image overlay). Text blocks are
+      // filtered to LEAVES — a <blockquote> wrapping <p>s would otherwise
+      // smush children together with no whitespace ("down.It" bug).
+      const BLOCK_SEL = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img";
+      const allNodes = Array.from(root.querySelectorAll(BLOCK_SEL));
+      const nodeSet = new Set(allNodes);
       const blocks = [];
-      const seen = new Set();
-      leafBlocks.forEach(el => {
-        const text = el.textContent.trim();
-        if (!text || seen.has(text)) return;
-        seen.add(text);
-        const tag = el.tagName.toLowerCase();
-        if (tag.match(/^h[1-6]$/)) {
-          blocks.push("\n" + "#".repeat(parseInt(tag[1])) + " " + text + "\n");
-        } else if (tag === "li") {
-          blocks.push("- " + text);
-        } else if (tag === "blockquote") {
-          blocks.push("> " + text);
-        } else {
-          blocks.push(text);
-        }
-      });
+      const textParts = [];
+      const seenImg = new Set();
 
-      return blocks.join("\n\n");
+      for (const el of allNodes) {
+        const tag = el.tagName.toLowerCase();
+
+        if (tag === "img") {
+          const src = el.getAttribute("src") || "";
+          if (!src || src.startsWith("data:") || seenImg.has(src)) continue;
+          const w = parseInt(el.getAttribute("width")) || 0;
+          const h = parseInt(el.getAttribute("height")) || 0;
+          if ((w > 0 && w < 80) || (h > 0 && h < 80)) continue;
+          if (/tracking|pixel|spacer|badge|avatar|logo|icon/i.test(src)) continue;
+          let absSrc = src;
+          try { absSrc = new URL(src, url).href; } catch {}
+          seenImg.add(src);
+          blocks.push({ type: "image", src: absSrc, alt: el.alt || "" });
+          continue;
+        }
+
+        // Skip non-leaf text blocks
+        let isLeaf = true;
+        for (const desc of el.querySelectorAll(BLOCK_SEL)) {
+          if (nodeSet.has(desc) && desc.tagName.toLowerCase() !== "img") { isLeaf = false; break; }
+        }
+        if (!isLeaf) continue;
+
+        const body = textWithLinks(el, url);
+        if (!body) continue;
+
+        const hMatch = tag.match(/^h([1-6])$/);
+        if (hMatch) {
+          blocks.push({ type: "heading", level: parseInt(hMatch[1]), text: body });
+          textParts.push("\n" + "#".repeat(parseInt(hMatch[1])) + " " + body + "\n");
+        } else if (tag === "li") {
+          blocks.push({ type: "paragraph", text: body });
+          textParts.push("- " + body);
+        } else if (tag === "blockquote") {
+          blocks.push({ type: "paragraph", text: body });
+          textParts.push("> " + body);
+        } else {
+          blocks.push({ type: "paragraph", text: body });
+          textParts.push(body);
+        }
+      }
+
+      return { text: textParts.join("\n\n"), blocks };
     }
 
     textarea.addEventListener("input", () => {

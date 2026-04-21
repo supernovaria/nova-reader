@@ -64,6 +64,57 @@
   updateWpmDisplay();
 
   // ── Text parsing ──
+  // Emit an image placeholder at the current word position.
+  function emitImage(src, alt) {
+    paragraphStarts.push(words.length);
+    paragraphTypes.push("image");
+    imageAtWord[words.length] = { src, alt: alt || "" };
+    words.push("\u{1F5BC}"); // 🖼 placeholder
+    wordFormats.push({ bold: false, italic: false, code: false, strike: false, link: null });
+    hyphenContinuation.push(false);
+  }
+
+  // Emit a text block, splitting on inline ![alt](url) markdown so images
+  // become their own block (image overlay) rather than being flattened to
+  // plain alt text inside a paragraph.
+  function emitBlockFromText(text, type) {
+    const IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+    const segments = [];
+    let lastIdx = 0;
+    let m;
+    while ((m = IMG_RE.exec(text)) !== null) {
+      if (m.index > lastIdx) segments.push({ kind: "text", text: text.slice(lastIdx, m.index) });
+      const src = m[2].trim();
+      if (src && !src.startsWith("javascript:")) {
+        segments.push({ kind: "image", src, alt: m[1] });
+      }
+      lastIdx = m.index + m[0].length;
+    }
+    if (lastIdx < text.length) segments.push({ kind: "text", text: text.slice(lastIdx) });
+    if (segments.length === 0) segments.push({ kind: "text", text });
+
+    for (const seg of segments) {
+      if (seg.kind === "image") { emitImage(seg.src, seg.alt); continue; }
+      const trimmed = seg.text.trim();
+      if (!trimmed) continue;
+      paragraphStarts.push(words.length);
+      paragraphTypes.push(type);
+      const hMatch = type.match(/^heading-(\d)$/);
+      if (hMatch) {
+        headings.push({
+          paraIndex: paragraphStarts.length - 1,
+          wordIndex: words.length,
+          level: parseInt(hMatch[1]),
+          text: trimmed,
+        });
+      }
+      const { tokens, formats, continuations } = tokenizeMarkdown(trimmed);
+      words.push(...tokens);
+      wordFormats.push(...formats);
+      hyphenContinuation.push(...continuations);
+    }
+  }
+
   function parseText(raw, structuredBlocks) {
     words = [];
     paragraphStarts = [];
@@ -77,30 +128,14 @@
     if (structuredBlocks && structuredBlocks.length > 0) {
       // Use structured block data from page extraction
       for (const block of structuredBlocks) {
-        // Handle image blocks
         if (block.type === "image") {
-          paragraphStarts.push(words.length);
-          paragraphTypes.push("image");
-          imageAtWord[words.length] = { src: block.src, alt: block.alt || "" };
-          words.push("\u{1F5BC}"); // 🖼 placeholder
-          wordFormats.push({ bold: false, italic: false, code: false, strike: false });
-          hyphenContinuation.push(false);
+          emitImage(block.src, block.alt);
           continue;
         }
-
         const trimmed = block.text.trim();
         if (!trimmed) continue;
-        paragraphStarts.push(words.length);
-        if (block.type === "heading") {
-          paragraphTypes.push("heading-" + block.level);
-          headings.push({ paraIndex: paragraphStarts.length - 1, wordIndex: words.length, level: block.level, text: trimmed });
-        } else {
-          paragraphTypes.push("paragraph");
-        }
-        const { tokens, formats, continuations } = tokenizeMarkdown(trimmed);
-        words.push(...tokens);
-        wordFormats.push(...formats);
-        hyphenContinuation.push(...continuations);
+        const type = block.type === "heading" ? "heading-" + block.level : "paragraph";
+        emitBlockFromText(trimmed, type);
       }
     } else {
       // Plain text / markdown — split into lines, group into paragraphs
@@ -111,16 +146,8 @@
         if (group.length === 0) return;
         const text = group.join(" ").trim();
         if (!text) { group = []; return; }
-        paragraphStarts.push(words.length);
         const isHead = isLikelyHeading(text);
-        paragraphTypes.push(isHead ? "heading-2" : "paragraph");
-        if (isHead) {
-          headings.push({ paraIndex: paragraphStarts.length - 1, wordIndex: words.length, level: 2, text });
-        }
-        const { tokens, formats, continuations } = tokenizeMarkdown(text);
-        words.push(...tokens);
-        wordFormats.push(...formats);
-        hyphenContinuation.push(...continuations);
+        emitBlockFromText(text, isHead ? "heading-2" : "paragraph");
         group = [];
       };
 
@@ -143,12 +170,7 @@
           const level = hMatch[1].length;
           const text = hMatch[2].replace(/\s+#+\s*$/, "").trim();
           if (!text) continue;
-          paragraphStarts.push(words.length);
-          paragraphTypes.push("heading-" + level);
-          headings.push({ paraIndex: paragraphStarts.length - 1, wordIndex: words.length, level, text });
-          const { tokens, formats } = tokenizeMarkdown(text);
-          words.push(...tokens);
-          wordFormats.push(...formats);
+          emitBlockFromText(text, "heading-" + level);
           continue;
         }
 
@@ -157,11 +179,7 @@
           flushGroup();
           const text = line.replace(/^\s*>\s*/, "").trim();
           if (!text) continue;
-          paragraphStarts.push(words.length);
-          paragraphTypes.push("blockquote");
-          const { tokens, formats } = tokenizeMarkdown(text);
-          words.push(...tokens);
-          wordFormats.push(...formats);
+          emitBlockFromText(text, "blockquote");
           continue;
         }
 
@@ -170,11 +188,7 @@
           flushGroup();
           const text = line.replace(/^\s*[-*+]\s+/, "").trim();
           if (!text) continue;
-          paragraphStarts.push(words.length);
-          paragraphTypes.push("list-ul");
-          const { tokens, formats } = tokenizeMarkdown(text);
-          words.push(...tokens);
-          wordFormats.push(...formats);
+          emitBlockFromText(text, "list-ul");
           continue;
         }
 
@@ -183,11 +197,7 @@
           flushGroup();
           const text = line.replace(/^\s*\d+[.)]\s+/, "").trim();
           if (!text) continue;
-          paragraphStarts.push(words.length);
-          paragraphTypes.push("list-ol");
-          const { tokens, formats } = tokenizeMarkdown(text);
-          words.push(...tokens);
-          wordFormats.push(...formats);
+          emitBlockFromText(text, "list-ol");
           continue;
         }
 
@@ -210,8 +220,43 @@
 
   // Tokenize text while stripping markdown inline formatting and tracking state
   function tokenizeMarkdown(text) {
-    // Pre-process: convert markdown links [text](url) → text, images ![alt](url) → alt
-    let processed = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");
+    // Pre-pass: convert markdown link/image syntax while tracking per-char link URLs.
+    // Images ![alt](url) reduce to plain alt text; links [text](url) keep their URL
+    // in linkPerChar so the tokenizer can attach it to each word's format.
+    let processed = "";
+    const linkPerChar = [];
+    let currentLink = null;
+    {
+      let k = 0;
+      while (k < text.length) {
+        const ch = text[k];
+        if (ch === "[" || (ch === "!" && text[k + 1] === "[")) {
+          const isImage = ch === "!";
+          const textStart = isImage ? k + 2 : k + 1;
+          const closeBracket = text.indexOf("]", textStart);
+          if (closeBracket !== -1 && text[closeBracket + 1] === "(") {
+            const closeParen = text.indexOf(")", closeBracket + 2);
+            if (closeParen !== -1) {
+              const linkText = text.slice(textStart, closeBracket);
+              const linkUrl = text.slice(closeBracket + 2, closeParen).trim();
+              const useUrl = !isImage && linkUrl && !linkUrl.startsWith("javascript:") ? linkUrl : null;
+              const wasLink = currentLink;
+              if (useUrl) currentLink = useUrl;
+              for (const lch of linkText) {
+                processed += lch;
+                linkPerChar.push(currentLink);
+              }
+              currentLink = wasLink;
+              k = closeParen + 1;
+              continue;
+            }
+          }
+        }
+        processed += ch;
+        linkPerChar.push(currentLink);
+        k++;
+      }
+    }
 
     // Build clean text and per-character format map
     let clean = "";
@@ -225,7 +270,7 @@
       }
       if (code) {
         clean += processed[i];
-        charFmt.push({ bold, italic, code: true, strike });
+        charFmt.push({ bold, italic, code: true, strike, link: linkPerChar[i] || null });
         i++; continue;
       }
       if (processed[i] === "~" && processed[i + 1] === "~") {
@@ -246,7 +291,7 @@
         }
       }
       clean += processed[i];
-      charFmt.push({ bold, italic, code, strike });
+      charFmt.push({ bold, italic, code, strike, link: linkPerChar[i] || null });
       i++;
     }
 
@@ -259,7 +304,7 @@
     let match;
     while ((match = regex.exec(clean)) !== null) {
       const tok = match[0];
-      const fmt = charFmt[match.index] || { bold: false, italic: false, code: false, strike: false };
+      const fmt = charFmt[match.index] || { bold: false, italic: false, code: false, strike: false, link: null };
       if (tok.includes("\u2014") || tok.includes("\u2013")) {
         const parts = tok.split(/(\u2014|\u2013)/);
         for (const part of parts) {
